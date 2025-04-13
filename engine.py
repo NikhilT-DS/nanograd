@@ -53,12 +53,6 @@ class ValueTensor:
 
   def __truediv__(self, other):
     other = other if isinstance(other, ValueTensor) else ValueTensor(other)
-    # out = ValueTensor(self.data / other.data, (self, other), "/")
-    # def _backward():
-    #   self.grad += out.grad / other.data
-    #   other.grad = other.grad + self.unbroadcast_to_shape(-self.data * out.grad * (other.data.astype(float) ** -2), other.data.shape) # this is required as numpy refuses to convert int array to float array | also the inplace ops doesn't work
-    # out._backward = _backward
-    # return out
     return self * other ** -1
 
 
@@ -126,20 +120,7 @@ class ValueTensor:
       self.grad += self.unbroadcast_to_shape(out.grad / scale, self.data.shape)
     out._backward = _backward
     return out
-
-  # def max(self, axis = None, keepdims= True):
-  #   out = ValueTensor(np.max(self.data, axis=axis, keepdims=keepdims), (self,), "max")
-
-  #   def _backward():
-  #     grad = self.unbroadcast_to_shape(out.grad, self.data.shape)
-  #     max_mask = self.data == np.max(self.data, axis=axis, keepdims=True) # this gives a mask of which element contributed to the forward step
-  #     count = np.sum(max_mask, axis=axis, keepdims=True) # this is to check if multiple elements on same axis have max 
-  #     self.grad += max_mask * grad / count # to divide grad across multiple max elements on same axis
-      
-  #   out._backward = _backward
-  #   return out
   
-
   def max(self, axis=None, keepdims=True):
     # Forward: compute maximum along the given axis.
     out_data = np.max(self.data, axis=axis, keepdims=keepdims)

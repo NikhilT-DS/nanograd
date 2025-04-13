@@ -1,6 +1,6 @@
-# ValueTensor: A Minimal Autograd Engine for Tensors
+# Nanograd: A Minimal Autograd Engine for Tensors
 
-**ValueTensor** is a lightweight, NumPy/CuPy-based autodiff engine inspired by Karpathy's [micrograd](https://github.com/karpathy/micrograd), but extended to support **tensors**, **broadcasting**, **matrix operations**, and **modular neural networks**.
+**Nanograd** is a lightweight, NumPy/CuPy-based autodiff engine inspired by Karpathy's [micrograd](https://github.com/karpathy/micrograd), but extended to support **tensors**, **broadcasting**, **matrix operations**, and **modular neural networks**.
 
 This library is built from scratch to provide a clear, minimal implementation of reverse-mode automatic differentiation on multidimensional arrays (tensors). It's useful for educational purposes, debugging autograd mechanics, and building intuition for how frameworks like PyTorch and JAX work internally.
 

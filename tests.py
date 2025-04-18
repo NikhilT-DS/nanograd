@@ -170,6 +170,49 @@ def test_exp():
     assert_allclose(x.grad, tx.grad.numpy(), tol=1e-4, op="Exp grad")
     print("Exp test passed.")
 
+def test_log_forward_backward():
+    # Forward: log
+    data = np.array([1.0, 2.0, 4.0])
+    x = ValueTensor(data)
+    y = x.log()
+    expected_forward = np.log(data)
+    assert np.allclose(y.data, expected_forward), f"Forward log failed: {y.data} vs {expected_forward}"
+
+    # Backward: gradient should be 1/x
+    # Use sum to propagate a gradient of 1 for each element
+    loss = y.sum(axis=0, keepdims=False)
+    x.zero_grad()
+    loss.backward()
+    expected_grad = 1.0 / data
+    assert np.allclose(x.grad, expected_grad), f"Backward log failed: {x.grad} vs {expected_grad}"
+    print("Log test passed.")
+
+
+
+def test_softmax_forward_backward():
+    # Forward: softmax
+    vec = np.array([1.0, 2.0, 3.0])
+    z = ValueTensor(vec)
+    s = z.softmax()
+    # Expected softmax
+    shift = vec - np.max(vec)
+    exp_shift = np.exp(shift)
+    expected_forward = exp_shift / exp_shift.sum()
+    assert np.allclose(s.data, expected_forward), f"Forward softmax failed: {s.data} vs {expected_forward}"
+
+    # Backward: use an upstream gradient g
+    g = np.array([0.1, 0.2, 0.3])
+    # define a scalar loss = sum(s * g)
+    loss = (s * g).sum(axis=0, keepdims=False)
+    z.zero_grad()
+    loss.backward()
+    # Expected gradient: s * (g - dot(g, s))
+    D = np.dot(g, expected_forward)
+    expected_grad = expected_forward * (g - D)
+    assert np.allclose(z.grad, expected_grad), f"Backward softmax failed: {z.grad} vs {expected_grad}"
+    print("Softmax test passed.")
+
+
 # ----------------------------
 # Test Functions for reductions and shape operations
 # ----------------------------
@@ -276,6 +319,8 @@ def run_all_tests():
     test_tanh()
     test_sigmoid()
     test_exp()
+    test_log_forward_backward()
+    test_softmax_forward_backward()
     test_sum()
     test_mean()
     test_max() # currently pytorch does not distribute gradients in case of a tie

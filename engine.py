@@ -104,6 +104,32 @@ class ValueTensor:
       self.grad += out.grad * out.data
     out._backward = _backward
     return out
+  
+  def log(self):
+    out = ValueTensor(np.log(self.data), (self,), "log")
+    def _backward():
+        # gradient of log(x) is 1/x
+        self.grad += out.grad / self.data
+    out._backward = _backward
+    return out
+
+  def softmax(self, axis=-1):
+    """ this implementation runs in O(n) insead of n^2"""
+    # numerically stable softmax
+    shift = self.data - np.max(self.data, axis=axis, keepdims=True)
+    exps = np.exp(shift)
+    sums = np.sum(exps, axis=axis, keepdims=True)
+
+    out_data = exps / sums
+    out = ValueTensor(out_data, (self,), "softmax")
+    def _backward():
+        grad = out.grad
+        s = out.data
+        # Jacobian-vector product for softmax gradient
+        dot = np.sum(grad * s, axis=axis, keepdims=True)
+        self.grad += s * (grad - dot)
+    out._backward = _backward
+    return out
 
   # reduction operations
   def sum(self, axis = 0, keepdims=True):

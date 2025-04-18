@@ -93,7 +93,7 @@ dot.render('graph', format='svg')
 
 Below is a small computation graph visualized using the built-in `draw_dot()` utility:
 
-![Example Graph](assets\example_graph.svg)
+![Example Graph](assets/example_graph.svg)
 
 ---
 

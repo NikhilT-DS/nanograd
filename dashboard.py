@@ -60,7 +60,6 @@ if ("dataset_choice" not in st.session_state
 
 X = st.session_state.X
 y = st.session_state.y
-y = st.session_state.y
 
 # — Setup & Training Page —
 if page == "Setup & Training":
@@ -173,56 +172,76 @@ if page == "Setup & Training":
 # — Loss Landscape Page —
 elif page=="Loss Landscape":
     st.header("🌄 Loss Landscape & Optimizer Paths")
-    # Optimizer selection and hyperparams
-    optim_names=st.multiselect("Optimizers",["SGD","SGD with Momentum","Adam"],default=["SGD","Adam"])
-    lr=st.sidebar.slider("Learning Rate",1e-3,1.0,0.1)
-    steps=st.sidebar.slider("Optimization Steps",5,200,50)
-    momentum=st.sidebar.slider("Momentum (SGD+M)",0.0,0.99,0.9)
-    beta1=st.sidebar.slider("Beta1 (Adam)",0.0,0.999,0.9)
-    beta2=st.sidebar.slider("Beta2 (Adam)",0.0,0.999,0.999)
-    eps=st.sidebar.number_input("Epsilon (Adam)",1e-8,1e-4,1e-8,format="%.1e")
+    # Get X,y,task,mlp from session_state (we only need task to decide loss type)
+    task = st.session_state.get("task","Classification")
 
-    # grid setup
-    layer_sizes=st.session_state.layer_sizes
-    activation=st.session_state.activation
-    X=st.session_state.X; y=st.session_state.y
-    w0_vals,w1_vals=[],[]
-    pts=50; delta=1.0
-    # record landscape around initial weight
-    initial_w=st.session_state.initial_weights[0]  # first weight matrix
-    grid0=np.linspace(initial_w[0,0]-delta,initial_w[0,0]+delta,pts)
-    grid1=np.linspace(initial_w[0,1]-delta,initial_w[0,1]+delta,pts)
-    Z=np.zeros((pts,pts))
-    for i,v0 in enumerate(grid0):
-        for j,v1 in enumerate(grid1):
-            w_tmp=initial_w.copy(); w_tmp[0,0],w_tmp[0,1]=v0,v1
-            mlp2=MLP(layer_sizes,activation)
-            mlp2.layers[0].w.data=w_tmp
-            x_t=ValueTensor(X)
-            if task=="Classification": y_t=ValueTensor(np.eye(st.session_state.output_dim)[y]); loss=cross_entropy(y_t,mlp2(x_t))
-            else: y_t=ValueTensor(y.reshape(-1,1)); loss=mse(y_t,mlp2(x_t))
-            Z[i,j]=float(loss.data.mean())
-    # plot contour
-    fig=go.Figure(go.Contour(z=Z,x=grid0,y=grid1,colorscale="Viridis",contours=dict(showlabels=True)))
+    # Sidebar: choose optimizers & hyperparams
+    opts = st.sidebar.multiselect("Optimizers", ["SGD","SGD with Momentum","Adam"], default=["SGD","Adam"])
+    lr = st.sidebar.slider("Learning Rate",0.001,1.0,0.1)
+    steps = st.sidebar.slider("Steps",5,200,50)
+    momentum = st.sidebar.slider("Momentum",0.0,0.99,0.9)
+    beta1 = st.sidebar.slider("Beta1",0.0,0.999,0.9)
+    beta2 = st.sidebar.slider("Beta2",0.0,0.999,0.999)
+    eps   = st.sidebar.number_input("Epsilon",1e-8,1e-4,1e-8,format="%.1e")
 
-    # overlay paths for each optimizer
-    for name in optim_names:
-        # run small training to get path
-        mlp3=MLP(layer_sizes,activation)
-        if name=="SGD": optim3=SGD(mlp3.parameters(),lr=lr)
-        elif name=="SGD with Momentum": optim3=SGDMomentum(mlp3.parameters(),momentum=momentum,lr=lr)
-        else: optim3=Adam(mlp3.parameters(),lr=lr,betas=(beta1,beta2),eps=eps)
-        path=[]
+    # Define toy loss
+    def loss_fn(xv, yv, kind="Quadratic"):
+        if kind == "Quadratic":
+            # simple elliptical bowl
+            return xv**2 + (2 * yv)**2
+        elif kind == "Rosenbrock":
+            # banana‑shaped valley
+            a, b = 1.0, 100.0
+            return (a - xv)**2 + b * (yv - xv**2)**2
+        elif kind == "Himmelblau":
+            # four‑minima surface
+            return (xv**2 + yv - 11)**2 + (xv + yv**2 - 7)**2
+        elif kind == "Matyas":
+            # Matyas function
+            return 0.26 * (xv**2 + yv**2) - 0.48 * (xv * yv)
+
+
+    loss_kind = st.sidebar.selectbox("Loss Surface",["Quadratic", "Matyas"])
+
+    # Compute contour grid
+    grid = 100
+    lin = np.linspace(-3,3,grid)
+    Xg,Yg = np.meshgrid(lin,lin)
+    Z = loss_fn(ValueTensor(Xg),ValueTensor(Yg),kind=loss_kind).data
+
+    fig = go.Figure()
+    fig.add_trace(go.Contour(z=Z, x=lin, y=lin, colorscale="Viridis"))
+
+    # Overlay trajectories
+    for name in opts:
+        # initialize at (-2,2)
+        x = ValueTensor(np.array(-2.0))
+        y = ValueTensor(np.array( 2.0))
+        params = [x,y]
+        if name=="SGD":
+            optim = SGD(params, lr=lr)
+        elif name=="SGD with Momentum":
+            optim = SGDMomentum(params, momentum=momentum, lr=lr)
+        else:
+            optim = Adam(params, lr=lr, betas=(beta1,beta2), eps=eps)
+
+        path = [(x.data.item(), y.data.item())]
         for _ in range(steps):
-            x_t=ValueTensor(X); y_t=ValueTensor(np.eye(st.session_state.output_dim)[y] if task=="Classification" else y.reshape(-1,1))
-            pred=mlp3(x_t)
-            loss=cross_entropy(y_t,pred) if task=="Classification" else mse(y_t,pred)
+            loss = loss_fn(x,y,kind=loss_kind)
             loss.backward()
-            w0=mlp3.layers[0].w.data[0,0]; w1=mlp3.layers[0].w.data[0,1]
-            path.append((w0,w1))
-            optim3.step(); mlp3.zero_grad()
-        pts_arr=np.array(path)
-        fig.add_trace(go.Scatter(x=pts_arr[:,0],y=pts_arr[:,1],mode="lines+markers",name=name))
+            optim.step()
+            for p in params: p.zero_grad()
+            path.append((x.data.item(), y.data.item()))
 
-    fig.update_layout(title="Landscape & Optimizer Paths",xaxis_title="w[0,0]",yaxis_title="w[0,1]",margin=dict(l=20,r=20,t=40,b=20))
-    st.plotly_chart(fig,use_container_width=True)
+        path = np.array(path)
+        fig.add_trace(go.Scatter(
+            x=path[:,0], y=path[:,1],
+            mode="lines+markers", name=name
+        ))
+
+    fig.update_layout(
+        title=f"{loss_kind} Landscape & Optimizer Paths",
+        xaxis_title="x", yaxis_title="y",
+        margin=dict(l=20,r=20,t=40,b=20)
+    )
+    st.plotly_chart(fig, use_container_width=True)

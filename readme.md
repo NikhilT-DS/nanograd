@@ -1,101 +1,122 @@
 # Nanograd: A Minimal Autograd Engine for Tensors
 
-**Nanograd** is a lightweight, NumPy/CuPy-based autodiff engine inspired by Karpathy's [micrograd](https://github.com/karpathy/micrograd), but extended to support **tensors**, **broadcasting**, **matrix operations**, and **modular neural networks**.
+**Nanograd** is a lightweight, NumPy-based autodiff engine inspired by Karpathy's [micrograd](https://github.com/karpathy/micrograd), but extended to support **tensors**, **broadcasting**, **matrix operations**, and **modular neural networks**.
 
 This library is built from scratch to provide a clear, minimal implementation of reverse-mode automatic differentiation on multidimensional arrays (tensors). It's useful for educational purposes, debugging autograd mechanics, and building intuition for how frameworks like PyTorch and JAX work internally.
 
 ---
 
 ## Features
-- Tensor support: Operate on N-dimensional arrays (NumPy or CuPy)
+- Tensor support: Operate on N-dimensional arrays using NumPy
 - Reverse-mode autodiff (backpropagation)
-- Broadcasting support (via `unbroadcast_to_shape`)
+- Broadcasting-safe gradients
 - Basic math operations: `+`, `-`, `*`, `/`, `**`, `@`
 - Reductions: `sum`, `mean`, `max`
-- Nonlinearities: `relu`, `tanh`, `sigmoid`, `exp`
-- Shape manipulation: `reshape`, `transpose`
-- Custom MLP + Linear layer support
-- Graph visualization using Graphviz with statistics & color-coding
-- Pluggable backend: NumPy (CPU) or CuPy (GPU)
+- Nonlinearities: `relu`, `tanh`, `sigmoid`, `exp`, `log`, `softmax`
+- Losses: `mse`, `cross_entropy`, `binary_cross_entropy`
+- Shape ops: `reshape`, `transpose`
+- Modular MLP and Linear layers
+- Optimizers: `SGD`, `SGDMomentum`, `Adam`
+- Visualizer: Graphviz-based computation graph
+  - Color-coded gradients by magnitude
+  - Node summaries (shape, mean/std/min/max)
+  - Operation-based color themes
+- Example notebooks: regression + classification with California Housing and Iris datasets
 
 ---
 
 ## Installation
 ```bash
-pip install numpy graphviz
-# Optional (for GPU):
-pip install cupy-cuda11x  # replace with your CUDA version
+pip install numpy graphviz scikit-learn
+```
+
+To visualize graphs, also install:
+```bash
+sudo apt install graphviz        # or brew install graphviz on macOS
 ```
 
 ---
 
-## Getting Started
+## Usage Examples
 
-### Define Values and Compute Gradients
+### Forward + Backward on a Simple Graph
 ```python
 from engine import ValueTensor
-import numpy as np
 
-x = ValueTensor(np.array([[1.0, 2.0]]))
-w = ValueTensor(np.array([[2.0], [3.0]]))
-b = ValueTensor(np.array([[1.0]]))
+x = ValueTensor([[1.0, 2.0]])
+w = ValueTensor([[2.0], [3.0]])
+b = ValueTensor([[1.0]])
 
 out = x @ w + b
-y = out.relu().sum()
-y.backward()
+loss = out.relu().sum()
+loss.backward()
 
 print("Output:", out.data)
 print("Gradient w.r.t w:", w.grad)
 ```
 
-### Build a Multi-Layer Perceptron (MLP)
+### Train an MLP for Regression
 ```python
 from model import MLP
+from optim import SGD
+from objective import mse
 
-mlp = MLP([2, 8, 1], activation='relu')
+model = MLP([8, 32, 1], activation='relu')
+optimizer = SGD(model.parameters(), lr=0.01)
 
-x = ValueTensor(np.random.randn(4, 2))  # batch of 4, 2 features each
-pred = mlp(x)
-loss = pred.mean()
-loss.backward()
+for epoch in range(100):
+    preds = model(X_train)              # ValueTensor
+    loss = mse(y_train, preds)
 
-# Update parameters manually (SGD)
-lr = 0.01
-for p in mlp.parameters():
-    p.data -= lr * p.grad
-    p.zero_grad()
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
 ```
 
 ---
 
-## Visualizing the Computation Graph
-```python
-from visualize import draw_dot
+## Visualization
 
+```python
+from visuals import draw_dot
+
+# Visualize any ValueTensor graph (e.g., loss)
 dot = draw_dot(loss)
-dot.render('graph', format='svg', cleanup=False)
+dot.render('graph', format='svg')
 ```
-- Nodes show operation, shape, summary of `data` and `grad`
-- Colored backgrounds indicate operation type
-- Graphs can be large, so summarization avoids clutter
+
+- Nodes summarize tensor shape and gradient stats
+- Gradients color-coded by magnitude
+- Works well even for large MLPs
+
+---
+
+## Datasets and Notebooks
+
+See `nanograd.ipynb` for:
+- ✅ Regression on California Housing
+- ✅ Classification on Iris Dataset
+- ✅ Cross-entropy loss + softmax
+- ✅ Training loop with SGD optimizer
+- ✅ Graph visualization of computation trace
 
 ---
 
 ## Roadmap
-- [x] Tensor support
-- [x] Broadcasting-safe gradients
-- [x] Modular MLP + training loop
-- [x] Graphviz-based visualization
-- [ ] Add more optimizers (Adam, RMSprop)
-- [ ] Save/load models
-- [ ] BatchNorm, Dropout layers
-- [ ] Jupyter demo notebooks
-- [ ] CLI trainer for simple datasets (e.g., XOR, MNIST subset)
+- [x] Tensor engine with broadcasting support
+- [x] MLPs and optimizer integration
+- [x] Visual computation graph with color encoding
+- [x] Cross-entropy for classification
+- [x] Regression/classification examples
+- [ ] Add Sequential and Dropout layers
+- [ ] Add Trainer class with metric tracking
+- [ ] Add model save/load functionality
+- [ ] Add more interactive visualizations (Streamlit / live graph updates)
 
 ---
 
 ## Contributing
-This project is educational and evolving. Feel free to fork, suggest improvements, or open PRs for any enhancements or fixes!
+PRs and ideas are welcome! This is an open-ended project intended for learning and exploration.
 
 ---
 
@@ -106,5 +127,5 @@ MIT License
 
 ## Credits
 - Inspired by [micrograd](https://github.com/karpathy/micrograd)
-- Built to extend the same philosophy to tensors, broadcasting, and modular neural networks.
+- Built to explore and extend autograd to tensors, models, and visual computation
 

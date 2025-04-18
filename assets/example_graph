@@ -1,0 +1,24 @@
+digraph {
+	graph [rankdir=LR]
+	2429380548208 [label="+\nShape: (1, 1)\n| Data: mean: -3.000, std: 0.000\nmin: -3.000, max: -3.000\n| Grad: mean: 0.000, std: 0.000\nmin: 0.000, max: 0.000" fillcolor=lightblue shape=record style=filled]
+	"2429380548208+" [label="+" fillcolor=lightblue shape=oval style=filled]
+	"2429380548208+" -> 2429380548208
+	2429497436416 [label="Input\nShape: (1, 1)\n| Data: mean: 1.000, std: 0.000\nmin: 1.000, max: 1.000\n| Grad: mean: 0.000, std: 0.000\nmin: 0.000, max: 0.000" fillcolor=white shape=record style=filled]
+	2429496819488 [label="Input\nShape: (2, 1)\n| Data: mean: 2.500, std: 0.500\nmin: 2.000, max: 3.000\n| Grad: mean: 0.000, std: 0.000\nmin: 0.000, max: 0.000" fillcolor=white shape=record style=filled]
+	2429380543792 [label="relu\nShape: (1, 1)\n| Data: mean: 0.000, std: 0.000\nmin: 0.000, max: 0.000\n| Grad: mean: 1.000, std: 0.000\nmin: 1.000, max: 1.000" fillcolor=orange shape=record style=filled]
+	"2429380543792relu" [label=relu fillcolor=orange shape=oval style=filled]
+	"2429380543792relu" -> 2429380543792
+	2429380523888 [label="@\nShape: (1, 1)\n| Data: mean: -4.000, std: 0.000\nmin: -4.000, max: -4.000\n| Grad: mean: 0.000, std: 0.000\nmin: 0.000, max: 0.000" fillcolor=plum shape=record style=filled]
+	"2429380523888@" [label="@" fillcolor=plum shape=oval style=filled]
+	"2429380523888@" -> 2429380523888
+	2429497449872 [label="sum\nShape: (1, 1)\n| Data: mean: 0.000, std: 0.000\nmin: 0.000, max: 0.000\n| Grad: mean: 1.000, std: 0.000\nmin: 1.000, max: 1.000" fillcolor=lightcoral shape=record style=filled]
+	"2429497449872sum" [label=sum fillcolor=lightcoral shape=oval style=filled]
+	"2429497449872sum" -> 2429497449872
+	2429497429984 [label="Input\nShape: (1, 2)\n| Data: mean: -0.500, std: 1.500\nmin: -2.000, max: 1.000\n| Grad: mean: 0.000, std: 0.000\nmin: 0.000, max: 0.000" fillcolor=white shape=record style=filled]
+	2429380543792 -> "2429497449872sum"
+	2429380548208 -> "2429380543792relu"
+	2429497429984 -> "2429380523888@"
+	2429496819488 -> "2429380523888@"
+	2429497436416 -> "2429380548208+"
+	2429380523888 -> "2429380548208+"
+}

@@ -89,6 +89,12 @@ dot.render('graph', format='svg')
 - Gradients color-coded by magnitude
 - Works well even for large MLPs
 
+### 📊 Example Graph Visualization
+
+Below is a small computation graph visualized using the built-in `draw_dot()` utility:
+
+![Example Graph](assets\example_graph.svg)
+
 ---
 
 ## Datasets and Notebooks

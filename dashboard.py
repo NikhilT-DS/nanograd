@@ -1,293 +1,228 @@
-
-# dashboard.py
-from graphviz import Digraph
 import streamlit as st
 import numpy as np
 import pandas as pd
-from sklearn.datasets import load_iris
+import plotly.graph_objects as go
+from graphviz import Digraph
+from sklearn.datasets import (
+    load_iris, load_wine, load_breast_cancer,
+    load_diabetes, fetch_california_housing
+)
+from sklearn.metrics import (
+    accuracy_score, precision_score, recall_score, f1_score,
+    mean_squared_error
+)
 
 from engine import ValueTensor
 from model import MLP
 from optim import SGD, SGDMomentum, Adam
-from objective import cross_entropy
+from objective import cross_entropy, mse
 
 # — Page Setup —
 st.set_page_config(layout="wide")
 st.sidebar.title("Nanograd Dashboard")
-page = st.sidebar.radio("Go to", ["Architecture", "Training", "Loss Landscape"])
+page = st.sidebar.radio("Go to", ["Setup & Training", "Loss Landscape"])
 
-# … Architecture page code here …
+# — Dataset Selection —
+task = st.sidebar.selectbox("Task Type", ["Classification", "Regression"])
+if task == "Classification":
+    dataset_choice = st.sidebar.selectbox(
+        "Dataset", ["Iris", "Wine", "Breast Cancer"]
+    )
+else:
+    dataset_choice = st.sidebar.selectbox(
+        "Dataset", ["Diabetes", "California Housing"]
+    )
 
-if page == "Architecture":
-    st.header("🔍 Network Architecture")
-
-    # 1. Load a dataset to infer dims
-    data = load_iris()
-    X, y = data.data, data.target
-    input_dim = X.shape[1]        # 4 features
-    output_dim = len(np.unique(y))  # 3 classes
-
-    # 2. Define a model with two hidden layers
-    hidden1, hidden2 = 16, 8
-    layer_sizes = [input_dim, hidden1, hidden2, output_dim]
-    activation_name = "relu"
-    mlp = MLP(layer_sizes, activation=activation_name)
-
-    # 3. Build a Graphviz diagram with circle nodes
-    dot = Digraph()
-    dot.graph_attr.update(rankdir="LR")  # left → right
-
-    # color map
-    colors = {
-        "input": "lightblue",
-        "hidden": "lightgreen",
-        "output": "lightcoral"
-    }
-
-    node_ids = []
-    for idx, size in enumerate(layer_sizes):
-        node_id = f"L{idx}"
-        node_ids.append(node_id)
-
-        if idx == 0:
-            lbl = f"{node_id}\nInput\n{size}"
-            fill = colors["input"]
-        elif idx == len(layer_sizes) - 1:
-            lbl = f"{node_id}\nOutput\n{size}"
-            fill = colors["output"]
-        else:
-            lbl = f"{node_id}\nHidden\n{size}\n{activation_name}"
-            fill = colors["hidden"]
-
-        dot.node(node_id, label=lbl, shape="circle", style="filled", fillcolor=fill)
-
-    # connect layers
-    for i in range(len(node_ids) - 1):
-        dot.edge(node_ids[i], node_ids[i + 1])
-
-    # 4. Display the graph full‑width
-    st.graphviz_chart(dot.source, use_container_width=True)
-
-    # 5. Sidebar dropdown for layer details
-    st.sidebar.subheader("Layer Details")
-    selected = st.sidebar.selectbox("Choose a layer:", node_ids)
-
-    # 6. Show stats for the selected layer
-    st.subheader(f"Details for {selected}")
-    idx = int(selected[1:])
-    if idx == 0:
-        st.write("- **Layer Type:** Input")
-        st.write(f"- **Feature Dimension:** {layer_sizes[0]}")
-        st.write(f"- **Sample Input Range:** [{X.min():.2f}, {X.max():.2f}]")
+# — Load Data On Change —
+# Reload whenever user picks a new dataset
+if ("dataset_choice" not in st.session_state 
+        or st.session_state.dataset_choice != dataset_choice):
+    st.session_state.dataset_choice = dataset_choice
+    # load selected dataset
+    if dataset_choice == "Iris":
+        data = load_iris()
+    elif dataset_choice == "Wine":
+        data = load_wine()
+    elif dataset_choice == "Breast Cancer":
+        data = load_breast_cancer()
+    elif dataset_choice == "Diabetes":
+        data = load_diabetes()
     else:
-        # for idx>0, mlp.layers[idx-1] is the mapping into L{idx}
-        layer = mlp.layers[idx - 1]
-        w, b = layer.w.data, layer.b.data
-        layer_type = "Output" if idx == len(layer_sizes)-1 else "Hidden"
-        st.write(f"- **Layer Type:** {layer_type}")
-        st.write(f"- **Weight Shape:** {w.shape}")
-        st.write(f"- **Weight Stats:** mean {w.mean():.3f}, std {w.std():.3f}")
-        st.write(f"- **Bias Shape:** {b.shape}")
-        st.write(f"- **Bias Stats:** mean {b.mean():.3f}, std {b.std():.3f}")
-        if layer_type == "Output":
-            st.write(f"- **Target Classes:** {output_dim}")
+        data = fetch_california_housing()
+    # persist features and targets
+    st.session_state.X = data.data
+    st.session_state.y = data.target
+    # update dims
+    st.session_state.input_dim = st.session_state.X.shape[1]
+    st.session_state.output_dim = (
+        len(np.unique(st.session_state.y)) if task == "Classification" else 1
+    )
 
-# — Training Page —
-if page == "Training":
-    st.header("⚙️ Training on Iris (MSE)")
+X = st.session_state.X
+y = st.session_state.y
+y = st.session_state.y
 
-    # 1. Load data & one‑hot encode
-    data = load_iris()
-    X = data.data                          # (150, 4)
-    y = data.target                        # (150,)
-    num_classes = len(np.unique(y))
-    Y_onehot = np.eye(num_classes)[y]      # (150, 3)
+# — Setup & Training Page —
+if page == "Setup & Training":
+    st.header("🔧 Setup & Training")
 
-    # 2. Hyperparameter controls
+    # Model Architecture Controls
+    st.sidebar.subheader("Model Architecture")
+    num_hidden = st.sidebar.slider("Number of Hidden Layers", 1, 3, 2)
+    hidden_sizes = [
+        st.sidebar.number_input(
+            f"Units in hidden layer {i+1}", 1, 512,
+            value=[16,8,4][i], step=1
+        ) for i in range(num_hidden)
+    ]
+    activation = st.sidebar.selectbox(
+        "Activation Function", ["relu", "tanh", "sigmoid", None]
+    )
+
+    # Persist architecture
+    st.session_state.layer_sizes = (
+        [st.session_state.input_dim] + hidden_sizes + [st.session_state.output_dim]
+    )
+    st.session_state.activation = activation
+
+    # Instantiate Model
+    mlp = MLP(st.session_state.layer_sizes, activation=activation)
+    st.session_state.initial_weights = [w.data.copy() for w in mlp.parameters()]
+
+    # Visualize Architecture
+    dot = Digraph()
+    dot.graph_attr.update(rankdir="LR")
+    colors = {"input":"lightblue","hidden":"lightgreen","output":"lightcoral"}
+    ids = []
+    for idx, size in enumerate(st.session_state.layer_sizes):
+        node_id = f"L{idx}"; ids.append(node_id)
+        if idx==0:
+            lbl,fill = f"{node_id}\nInput\n{size}", colors["input"]
+        elif idx==len(st.session_state.layer_sizes)-1:
+            label="Logits" if task=="Classification" else "Output"
+            lbl,fill = f"{node_id}\n{label}\n{size}", colors["output"]
+        else:
+            lbl,fill = f"{node_id}\nHidden\n{size}\n{activation}", colors["hidden"]
+        dot.node(node_id,label=lbl,shape="circle",style="filled",fillcolor=fill)
+    for i in range(len(ids)-1): dot.edge(ids[i],ids[i+1])
+    st.graphviz_chart(dot.source,use_container_width=True)
+
+    # Training Hyperparameters
     st.sidebar.subheader("Training Hyperparams")
-    optimizer_name = st.sidebar.selectbox("Optimizer", ["SGD", "SGD with Momentum", "Adam"])
-    lr = st.sidebar.number_input("Learning Rate", min_value=1e-5, max_value=1.0, value=0.01, format="%.5f")
-    if optimizer_name == "SGD with Momentum":
-        momentum = st.sidebar.slider("Momentum", 0.0, 0.99, 0.9, 0.01)
-    if optimizer_name == "Adam":
-        beta1 = st.sidebar.slider("Beta1", 0.0, 0.999, 0.9, 0.01)
-        beta2 = st.sidebar.slider("Beta2", 0.0, 0.999, 0.999, 0.001)
-        eps   = st.sidebar.number_input("Epsilon", min_value=1e-8, max_value=1e-4, value=1e-8, format="%.8f")
-    epochs = st.sidebar.slider("Epochs", 1, 50, 10)
+    optsel = st.sidebar.selectbox("Optimizer", ["SGD","SGD with Momentum","Adam"])
+    lr = st.sidebar.number_input("Learning Rate",1e-5,1.0,value=0.01,format="%.5f")
+    if optsel=="SGD with Momentum": momentum=st.sidebar.slider("Momentum",0.0,0.99,0.9,0.01)
+    if optsel=="Adam":
+        beta1=st.sidebar.slider("Beta1",0.0,0.999,0.9,0.01)
+        beta2=st.sidebar.slider("Beta2",0.0,0.999,0.999,0.001)
+        eps=st.sidebar.number_input("Epsilon",1e-8,1e-4,1e-8,format="%.1e")
+    steps=st.sidebar.slider("Epochs",1,50,10)
 
-    # 3. Train on button click
+    # Train
     if st.sidebar.button("Start Training"):
-        with st.spinner("Training..."):
-            # Build model
-            hidden1, hidden2 = 16, 8
-            layer_sizes = [X.shape[1], hidden1, hidden2, num_classes]
-            mlp = MLP(layer_sizes, activation="relu")
+        # Prepare labels
+        if task=="Classification":
+            Y=np.eye(st.session_state.output_dim)[y]
+        else: Y=y.reshape(-1,1)
+        # Build fresh model and optimizer
+        mlp = MLP(st.session_state.layer_sizes, activation=activation)
+        if optsel=="SGD": optim=SGD(mlp.parameters(),lr=lr)
+        elif optsel=="SGD with Momentum": optim=SGDMomentum(mlp.parameters(),momentum=momentum,lr=lr)
+        else: optim=Adam(mlp.parameters(),lr=lr,betas=(beta1,beta2),eps=eps)
 
-            # Choose optimizer
-            if optimizer_name == "SGD":
-                optim = SGD(mlp.parameters(), lr=lr)
-            elif optimizer_name == "SGD with Momentum":
-                optim = SGDMomentum(mlp.parameters(), momentum=momentum, lr=lr)
-            else:  # Adam
-                optim = Adam(mlp.parameters(), lr=lr, betas=(beta1, beta2), eps=eps)
+        # Track history and trajectories
+        history={"Loss":[]}
+        if task=="Classification": history.update({"Accuracy":[],"Precision":[],"Recall":[],"F1":[]})
+        else: history.update({"MSE":[]})
+        trajs={name:[] for name in [optsel]}
 
-            # Lists to store metrics
-            losses, accs, grad_norms = [], [], []
-
-            # Full‑batch training loop
-            for ep in range(epochs):
-                # forward
-                x_tensor = ValueTensor(X)
-                y_tensor = ValueTensor(Y_onehot)
-                preds = mlp(x_tensor)
-
-                # compute loss & backward
-                loss = cross_entropy(y_tensor, preds)
-                loss.backward()
-
-                # record metrics
-                loss_val = float(loss.data.squeeze())
-                losses.append(loss_val)
-
-                # compute “accuracy” by argmax on raw preds
-                pred_labels = preds.data.argmax(axis=1)
-                acc = (pred_labels == y).mean()
-                accs.append(acc)
-
-                # avg gradient‑norm across all params
-                gn = np.mean([np.linalg.norm(p.grad) for p in mlp.parameters()])
-                grad_norms.append(gn)
-
-                # update & zero‑grad
-                optim.step()
-                mlp.zero_grad()
-
-        # 4. Display metrics
-        st.subheader("Training Metrics")
-        df = pd.DataFrame({
-            "Loss": losses,
-            "Accuracy": accs,
-            "Grad Norm": grad_norms
-        }, index=np.arange(1, epochs+1))
-        st.line_chart(df[["Loss", "Accuracy"]])
-        st.line_chart(df[["Grad Norm"]])
-
-        st.markdown(f"**Final Loss:** {losses[-1]:.4f}    **Final Accuracy:** {accs[-1]*100:.2f}%")
-
-        # 5. Optional: show param histograms
-        st.subheader("Final Parameter Distributions")
-        for i, param in enumerate(mlp.parameters()):
-            st.write(f"- Param {i} norm: {np.linalg.norm(param.data):.3f}")
-
-# — Loss Landscape & Paths Page —
-if page == "Loss Landscape":
-    # import matplotlib.pyplot as plt
-    import plotly.graph_objects as go
-    st.header("🌄 Loss Landscape & Optimizer Paths")
-
-    # Sidebar controls
-    st.sidebar.subheader("Landscape Settings")
-    fn = st.sidebar.selectbox("Loss Function", ["Quadratic", "Rosenbrock"])
-    lr = st.sidebar.number_input("Learning Rate", min_value=1e-3, max_value=1.0, value=0.1, step=0.01, format="%.3f")
-    steps = st.sidebar.slider("Steps", 5, 200, 50)
-    optim_names = st.sidebar.multiselect("Optimizers", ["SGD", "SGD with Momentum", "Adam"], default=["SGD", "Adam"])
-    momentum = st.sidebar.slider("Momentum (for SGD+M)", 0.0, 0.99, 0.9, 0.01)
-    beta1 = st.sidebar.slider("Beta1 (Adam)", 0.0, 0.999, 0.9, 0.01)
-    beta2 = st.sidebar.slider("Beta2 (Adam)", 0.0, 0.999, 0.999, 0.001)
-    eps   = st.sidebar.number_input("Epsilon (Adam)", min_value=1e-8, max_value=1e-4, value=1e-8, format="%.1e")
-
-    if st.sidebar.button("Run Trajectories"):
-
-        # Define loss functions
-        def compute_loss(xv, yv):
-            if fn == "Quadratic":
-                return xv**2 + (2*yv)**2
-            else:  # Rosenbrock in 2D
-                a, b = 1., 100.
-                return (a - xv)**2 + b*(yv - xv**2)**2
-
-        # Container for trajectories
-        trajs = {}
-
-        for name in optim_names:
-            # Initialize parameters at (-2, 2)
-            x = ValueTensor(np.array(-2.0))
-            y = ValueTensor(np.array( 2.0))
-            params = [x, y]
-
-            # Choose optimizer
-            if name == "SGD":
-                optim = SGD(params, lr=lr)
-            elif name == "SGD with Momentum":
-                optim = SGDMomentum(params, momentum=momentum, lr=lr)
+        for ep in range(steps):
+            x_t=ValueTensor(X); y_t=ValueTensor(Y)
+            preds=mlp(x_t)
+            loss = (cross_entropy(y_t,preds) if task=="Classification" else mse(y_t,preds))
+            loss.backward()
+            history["Loss"].append(float(loss.data.squeeze()))
+            # metrics
+            pred_vals=preds.data
+            if task=="Classification":
+                y_pred=pred_vals.argmax(axis=1)
+                history["Accuracy"].append(accuracy_score(y,y_pred))
+                history["Precision"].append(precision_score(y,y_pred,average="macro",zero_division=0))
+                history["Recall"].append(recall_score(y,y_pred,average="macro",zero_division=0))
+                history["F1"].append(f1_score(y,y_pred,average="macro",zero_division=0))
             else:
-                optim = Adam(params, lr=lr, betas=(beta1, beta2), eps=eps)
+                y_pred=pred_vals.squeeze()
+                history["MSE"].append(mean_squared_error(y,y_pred))
+            # record first-layer weight coords
+            w0=mlp.layers[0].w.data[0,0]; w1=mlp.layers[0].w.data[0,1]
+            trajs[optsel].append((w0,w1))
+            optim.step(); mlp.zero_grad()
 
-            path = [(x.data.item(), y.data.item())]
+        # persist
+        st.session_state.history=history
+        st.session_state.trajs=trajs
+        # plot metrics
+        df=pd.DataFrame(history,index=np.arange(1,steps+1))
+        fig=go.Figure()
+        fig.add_trace(go.Scatter(x=df.index,y=df["Loss"],name="Loss",yaxis="y1"))
+        for m in history:
+            if m!="Loss": fig.add_trace(go.Scatter(x=df.index,y=df[m],name=m,yaxis="y2"))
+        fig.update_layout(xaxis_title="Epoch",yaxis=dict(title="Loss"),yaxis2=dict(title="Metrics",overlaying="y",side="right"),legend=dict(x=0.5,y=1.1,orientation="h"))
+        st.plotly_chart(fig,use_container_width=True)
 
-            # Perform optimization steps
-            for _ in range(steps):
-                # compute loss and backprop
-                loss = compute_loss(x, y)
-                loss.backward()
+# — Loss Landscape Page —
+elif page=="Loss Landscape":
+    st.header("🌄 Loss Landscape & Optimizer Paths")
+    # Optimizer selection and hyperparams
+    optim_names=st.multiselect("Optimizers",["SGD","SGD with Momentum","Adam"],default=["SGD","Adam"])
+    lr=st.sidebar.slider("Learning Rate",1e-3,1.0,0.1)
+    steps=st.sidebar.slider("Optimization Steps",5,200,50)
+    momentum=st.sidebar.slider("Momentum (SGD+M)",0.0,0.99,0.9)
+    beta1=st.sidebar.slider("Beta1 (Adam)",0.0,0.999,0.9)
+    beta2=st.sidebar.slider("Beta2 (Adam)",0.0,0.999,0.999)
+    eps=st.sidebar.number_input("Epsilon (Adam)",1e-8,1e-4,1e-8,format="%.1e")
 
-                # update
-                optim.step()
-                for p in params:
-                    p.zero_grad()
+    # grid setup
+    layer_sizes=st.session_state.layer_sizes
+    activation=st.session_state.activation
+    X=st.session_state.X; y=st.session_state.y
+    w0_vals,w1_vals=[],[]
+    pts=50; delta=1.0
+    # record landscape around initial weight
+    initial_w=st.session_state.initial_weights[0]  # first weight matrix
+    grid0=np.linspace(initial_w[0,0]-delta,initial_w[0,0]+delta,pts)
+    grid1=np.linspace(initial_w[0,1]-delta,initial_w[0,1]+delta,pts)
+    Z=np.zeros((pts,pts))
+    for i,v0 in enumerate(grid0):
+        for j,v1 in enumerate(grid1):
+            w_tmp=initial_w.copy(); w_tmp[0,0],w_tmp[0,1]=v0,v1
+            mlp2=MLP(layer_sizes,activation)
+            mlp2.layers[0].w.data=w_tmp
+            x_t=ValueTensor(X)
+            if task=="Classification": y_t=ValueTensor(np.eye(st.session_state.output_dim)[y]); loss=cross_entropy(y_t,mlp2(x_t))
+            else: y_t=ValueTensor(y.reshape(-1,1)); loss=mse(y_t,mlp2(x_t))
+            Z[i,j]=float(loss.data.mean())
+    # plot contour
+    fig=go.Figure(go.Contour(z=Z,x=grid0,y=grid1,colorscale="Viridis",contours=dict(showlabels=True)))
 
-                path.append((x.data.item(), y.data.item()))
+    # overlay paths for each optimizer
+    for name in optim_names:
+        # run small training to get path
+        mlp3=MLP(layer_sizes,activation)
+        if name=="SGD": optim3=SGD(mlp3.parameters(),lr=lr)
+        elif name=="SGD with Momentum": optim3=SGDMomentum(mlp3.parameters(),momentum=momentum,lr=lr)
+        else: optim3=Adam(mlp3.parameters(),lr=lr,betas=(beta1,beta2),eps=eps)
+        path=[]
+        for _ in range(steps):
+            x_t=ValueTensor(X); y_t=ValueTensor(np.eye(st.session_state.output_dim)[y] if task=="Classification" else y.reshape(-1,1))
+            pred=mlp3(x_t)
+            loss=cross_entropy(y_t,pred) if task=="Classification" else mse(y_t,pred)
+            loss.backward()
+            w0=mlp3.layers[0].w.data[0,0]; w1=mlp3.layers[0].w.data[0,1]
+            path.append((w0,w1))
+            optim3.step(); mlp3.zero_grad()
+        pts_arr=np.array(path)
+        fig.add_trace(go.Scatter(x=pts_arr[:,0],y=pts_arr[:,1],mode="lines+markers",name=name))
 
-            trajs[name] = np.array(path)
-
-        # Prepare contour grid
-        grid_pts = 200
-        xlin = np.linspace(-3, 3, grid_pts)
-        ylin = np.linspace(-3, 3, grid_pts)
-        Xg, Yg = np.meshgrid(xlin, ylin)
-        Zg = compute_loss(ValueTensor(Xg), ValueTensor(Yg)).data
-
-        # Plot
-        # fig, ax = plt.subplots(figsize=(6, 6))
-        # cs = ax.contour(Xg, Yg, Zg, levels=30, cmap='viridis')
-        # ax.clabel(cs, inline=1, fontsize=8)
-        # ax.set_title(f"{fn} Landscape & Optimizer Paths")
-        # ax.set_xlabel("x")
-        # ax.set_ylabel("y")
-
-        # # Overlay trajectories
-        # for name, path in trajs.items():
-        #     ax.plot(path[:,0], path[:,1], marker='o', label=name)
-        # ax.legend()
-
-        # st.pyplot(fig, use_container_width=True)
-        # Plot with Plotly for full responsiveness
-        fig = go.Figure()
-
-        # Contour
-        fig.add_trace(go.Contour(
-            z=Zg,
-            x=xlin,
-            y=ylin,
-            colorscale='Viridis',
-            contours=dict(showlabels=True),
-            showscale=False
-        ))
-
-        # Optimizer paths
-        for name, path in trajs.items():
-            fig.add_trace(go.Scatter(
-                x=path[:,0],
-                y=path[:,1],
-                mode='lines+markers',
-                name=name
-            ))
-
-        fig.update_layout(
-            title=f"{fn} Landscape & Optimizer Paths",
-            xaxis_title="x",
-            yaxis_title="y",
-            margin=dict(l=20, r=20, t=40, b=20)
-        )
-
-        st.plotly_chart(fig) #, use_container_width=True)
+    fig.update_layout(title="Landscape & Optimizer Paths",xaxis_title="w[0,0]",yaxis_title="w[0,1]",margin=dict(l=20,r=20,t=40,b=20))
+    st.plotly_chart(fig,use_container_width=True)
